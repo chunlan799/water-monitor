@@ -1,94 +1,189 @@
 <!DOCTYPE html>
-<html>
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>水质监测</title>
     <style>
-        body { font-family: Arial; margin: 0; padding: 20px; background: #e8f5e9; }
-        .header { text-align: center; margin-bottom: 20px; }
-        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-        .card { background: white; border-radius: 12px; padding: 20px; text-align: center; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        .value { font-size: 32px; font-weight: bold; color: #0067b8; margin: 10px 0; }
-        .label { color: #666; font-size: 14px; }
-        .status { color: #888; font-size: 12px; }
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #e8f5e9;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            max-width: 500px;
+            margin: 0 auto;
+        }
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #0067b8;
+            margin: 10px 0;
+        }
+        .label {
+            color: #666;
+            font-size: 14px;
+        }
+        .status {
+            color: #888;
+            font-size: 12px;
+            margin-top: 10px;
+        }
+        .error {
+            color: #d32f2f;
+            font-weight: bold;
+        }
     </style>
 </head>
 <body>
     <div class="header">
         <h2>🌊 水质监测</h2>
-        <p id="status" class="status">连接中...</p>
+        <p id="status" class="status">正在连接...</p>
     </div>
     <div class="grid">
-        <div class="card"><div class="label">温度</div><div class="value" id="temp">--</div><div class="label">°C</div></div>
-        <div class="card"><div class="label">pH值</div><div class="value" id="ph">--</div><div class="label"> </div></div>
-        <div class="card"><div class="label">浊度</div><div class="value" id="turb">--</div><div class="label">NTU</div></div>
-        <div class="card"><div class="label">水质</div><div class="value" id="quality">--</div><div class="label">TDS</div></div>
+        <div class="card">
+            <div class="label">温度</div>
+            <div class="value" id="temp">--</div>
+            <div class="label">°C</div>
+        </div>
+        <div class="card">
+            <div class="label">pH值</div>
+            <div class="value" id="ph">--</div>
+            <div class="label"> </div>
+        </div>
+        <div class="card">
+            <div class="label">浊度</div>
+            <div class="value" id="turb">--</div>
+            <div class="label">NTU</div>
+        </div>
+        <div class="card">
+            <div class="label">水质</div>
+            <div class="value" id="quality">--</div>
+            <div class="label">TDS</div>
+        </div>
     </div>
 
+    <!-- 外部库 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+
     <script>
+        // ==================== 配置区 ====================
         const DEVICE_ID = "6a5cd5a47f2e6c302f86b74e_861037052742509";
-        const DEVICE_SECRET = "87654321";
-        const MQTT_HOST = "c0191bf1ec.st1.iotda-device.cn-north-4.myhuaweicloud.com";
+        const DEVICE_SECRET = "d798aa3c4015afbccfe666714e41bea73ed507cea16daa7a85fc07d17232c4ca"; // 这就是设备密钥，用于生成签名
+
+        // WebSocket 接入地址（请确认控制台中“MQTT over WebSocket”的地址）
+        const MQTT_HOST = "056eae522d.st1.iotda-device.cn-north-4.myhuaweicloud.com";
         const MQTT_PORT = 443;
         const MQTT_PATH = "/mqtt";
+
+        // 订阅主题：设备上报属性的 topic（平台会转发相同 deviceId 上报的消息）
         const TOPIC_REPORT = "$oc/devices/" + DEVICE_ID + "/sys/properties/report";
 
-        // 生成 access_token
+        // ==================== 签名生成 ====================
         function getAccessToken(secret) {
             const now = new Date();
             const timestamp = Math.floor(now.getTime() / 1000); // 秒级时间戳
-            const data = timestamp + "";
+            const data = timestamp.toString();
             const wordArray = CryptoJS.HmacSHA256(data, secret);
             const hashBase64 = CryptoJS.enc.Base64.stringify(wordArray);
+            // 华为云格式：timestamp + "." + Base64(HmacSHA256(timestamp, secret))
             return timestamp + "." + hashBase64;
         }
 
-        const client = new Paho.MQTT.Client(MQTT_HOST, MQTT_PORT, MQTT_PATH, DEVICE_ID);
+        // ==================== MQTT 客户端 ====================
+        // 为了避免和物理设备 clientId 冲突，加上随机后缀
+        const uniqueClientId = DEVICE_ID + "_web_" + Date.now();
+        const client = new Paho.MQTT.Client(MQTT_HOST, MQTT_PORT, MQTT_PATH, uniqueClientId);
+
         const options = {
             useSSL: true,
             userName: DEVICE_ID,
             password: getAccessToken(DEVICE_SECRET),
             cleanSession: true,
             onSuccess: onConnect,
-            onFailure: onFail
+            onFailure: onFail,
+            keepAliveInterval: 60
         };
 
         function onFail(err) {
-            document.getElementById('status').textContent = '连接失败: ' + err.errorMessage;
+            document.getElementById('status').innerHTML =
+                '<span class="error">连接失败: ' + err.errorMessage + '</span>';
+            console.error("MQTT 连接失败:", err);
         }
 
         function onConnect() {
-            document.getElementById('status').textContent = '已连接，等待数据...';
+            document.getElementById('status').textContent = '✅ 已连接，等待数据...';
             client.subscribe(TOPIC_REPORT, { qos: 0 });
+            console.log("已订阅:", TOPIC_REPORT);
         }
 
+        // 接收消息处理
         client.onMessageArrived = function (message) {
             try {
                 const payload = JSON.parse(message.payloadString);
                 let props = {};
+
+                // 华为云设备上报标准格式：{ services: [{ properties: {...} }] }
                 if (payload.services && payload.services.length > 0) {
                     props = payload.services[0].properties || {};
                 } else {
+                    // 兼容直接属性对象
                     props = payload;
                 }
-                if (props.temperature !== undefined) document.getElementById('temp').textContent = props.temperature;
-                if (props.ph !== undefined) document.getElementById('ph').textContent = props.ph;
-                if (props.turbidity !== undefined) document.getElementById('turb').textContent = props.turbidity;
-                if (props.quality !== undefined) document.getElementById('quality').textContent = props.quality;
-                document.getElementById('status').textContent = '数据已更新 ' + new Date().toLocaleTimeString();
+
+                // 更新界面
+                if (props.temperature !== undefined) {
+                    document.getElementById('temp').textContent = props.temperature;
+                }
+                if (props.ph !== undefined) {
+                    document.getElementById('ph').textContent = props.ph;
+                }
+                if (props.turbidity !== undefined) {
+                    document.getElementById('turb').textContent = props.turbidity;
+                }
+                if (props.quality !== undefined) {
+                    document.getElementById('quality').textContent = props.quality;
+                }
+
+                document.getElementById('status').textContent =
+                    '📡 数据已更新 ' + new Date().toLocaleTimeString();
+                console.log("收到数据:", props);
             } catch (e) {
-                console.error("解析失败:", e);
+                console.error("消息解析失败:", e);
+                document.getElementById('status').textContent = '⚠️ 数据解析错误';
             }
         };
 
+        // 断线重连
         client.onConnectionLost = function (resp) {
-            document.getElementById('status').textContent = '断开，5秒后重连...';
-            setTimeout(() => client.connect(options), 5000);
+            document.getElementById('status').textContent =
+                '🔌 连接断开 (错误码: ' + resp.errorCode + ')，5秒后重连...';
+            setTimeout(function () {
+                // 重新生成密码（因为时间戳已变）
+                options.password = getAccessToken(DEVICE_SECRET);
+                client.connect(options);
+            }, 5000);
         };
 
+        // ==================== 启动连接 ====================
         client.connect(options);
     </script>
 </body>
