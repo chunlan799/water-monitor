@@ -5,37 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>水质监测</title>
     <style>
-        body {
-            font-family: 'Segoe UI', Arial, sans-serif;
-            margin: 0; padding: 20px;
-            background: linear-gradient(135deg, #e0f2f1 0%, #e8f5e9 100%);
-            min-height: 100vh; box-sizing: border-box;
-        }
+        body { font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 20px; background: linear-gradient(135deg, #e0f2f1 0%, #e8f5e9 100%); min-height: 100vh; box-sizing: border-box; }
         .header { text-align: center; margin-bottom: 25px; }
         .header h2 { color: #2e7d32; font-size: 28px; margin: 0; }
-        .grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px; max-width: 500px; margin: 0 auto;
-        }
-        .card {
-            background: white; border-radius: 16px;
-            padding: 25px 15px; text-align: center;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-            transition: transform 0.2s;
-        }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; max-width: 500px; margin: 0 auto; }
+        .card { background: white; border-radius: 16px; padding: 25px 15px; text-align: center; box-shadow: 0 4px 15px rgba(0,0,0,0.1); transition: transform 0.2s; }
         .card:hover { transform: translateY(-3px); }
-        .value {
-            font-size: 36px; font-weight: bold;
-            color: #0067b8; margin: 12px 0;
-            word-break: break-all;
-        }
+        .value { font-size: 36px; font-weight: bold; color: #0067b8; margin: 12px 0; word-break: break-all; }
         .label { color: #555; font-size: 14px; letter-spacing: 0.5px; }
-        .status {
-            color: #777; font-size: 13px; margin-top: 15px;
-            padding: 8px 20px; background: rgba(255,255,255,0.9);
-            border-radius: 20px; display: inline-block;
-        }
+        .status { color: #777; font-size: 13px; margin-top: 15px; padding: 8px 20px; background: rgba(255,255,255,0.9); border-radius: 20px; display: inline-block; }
         .error { color: #c62828; font-weight: bold; }
         .success { color: #2e7d32; }
     </style>
@@ -52,27 +30,27 @@
         <div class="card"><div class="label">水质</div><div class="value" id="quality">--</div><div class="label">TDS</div></div>
     </div>
 
-    <!-- CryptoJS（用于生成密码） -->
+    <!-- CryptoJS 用于生成华为云签名密码 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
-    <!-- MQTT.js 库（比 Paho 稳定） -->
+    <!-- MQTT.js 库（直接使用浏览器原生 WebSocket，比 paho 稳定） -->
     <script src="https://cdn.jsdelivr.net/npm/mqtt/dist/mqtt.min.js"></script>
 
     <script>
         (function() {
-            // ==================== 配置（在这里修改） ====================
+            // ==================== 配置区 ====================
             const DEVICE_ID = "6a5cd5a47f2e6c302f86b74e_861037052742509";
-            const DEVICE_SECRET = "87654321";   // 你的设备密钥（如果报错 Bad username/password，请去控制台重置）
+            const DEVICE_SECRET = "87654321";   // 如果连接仍提示密码错误，请去控制台重置设备密钥
             const MQTT_HOST = "056eae522d.st1.iotda-device.cn-north-4.myhuaweicloud.com";
             const MQTT_PORT = 443;
             const MQTT_PATH = "/mqtt";
             const TOPIC_REPORT = "$oc/devices/" + DEVICE_ID + "/sys/properties/report";
-            // ============================================================
+            // ==================================================
 
             const statusEl = document.getElementById('status');
 
-            // 生成华为云签名密码
+            // 生成华为云签名密码（timestamp + "." + Base64(HmacSHA256(timestamp, secret))）
             function getPassword(secret) {
-                const timestamp = Math.floor(Date.now() / 1000);   // 秒级时间戳
+                const timestamp = Math.floor(Date.now() / 1000);
                 const hash = CryptoJS.HmacSHA256(timestamp.toString(), secret);
                 const hashBase64 = CryptoJS.enc.Base64.stringify(hash);
                 return timestamp + "." + hashBase64;
@@ -82,7 +60,7 @@
             const wsUrl = "wss://" + MQTT_HOST + ":" + MQTT_PORT + MQTT_PATH;
 
             const options = {
-                clientId: DEVICE_ID + "_" + Date.now(),  // 唯一ID，避免冲突
+                clientId: DEVICE_ID + "_" + Date.now(),  // 保证 clientId 唯一
                 username: DEVICE_ID,
                 password: getPassword(DEVICE_SECRET),
                 clean: true,
@@ -99,46 +77,38 @@
                 client.subscribe(TOPIC_REPORT, { qos: 0 }, function (err) {
                     if (err) {
                         statusEl.innerHTML = '<span class="error">❌ 订阅失败: ' + err.message + '</span>';
-                    } else {
-                        console.log("已订阅:", TOPIC_REPORT);
                     }
                 });
             });
 
-            // 收到消息
+            // 接收设备上报数据
             client.on('message', function (topic, message) {
                 try {
                     const payload = JSON.parse(message.toString());
                     let props = {};
-
-                    // 华为云标准格式
                     if (payload.services && Array.isArray(payload.services) && payload.services.length > 0) {
                         props = payload.services[0].properties || {};
                     } else {
                         props = payload;
                     }
 
-                    // 更新界面
                     if (props.temperature !== undefined) document.getElementById('temp').textContent = Number(props.temperature).toFixed(1);
                     if (props.ph !== undefined) document.getElementById('ph').textContent = Number(props.ph).toFixed(1);
                     if (props.turbidity !== undefined) document.getElementById('turb').textContent = Number(props.turbidity).toFixed(1);
                     if (props.quality !== undefined) document.getElementById('quality').textContent = Number(props.quality).toFixed(1);
 
                     statusEl.innerHTML = '<span class="success">📡 数据已更新 ' + new Date().toLocaleTimeString() + '</span>';
-                    console.log("收到数据:", props);
                 } catch (e) {
                     console.error("解析错误:", e);
-                    statusEl.innerHTML = '<span class="error">⚠️ 数据格式错误</span>';
                 }
             });
 
             // 错误处理
             client.on('error', function (err) {
                 statusEl.innerHTML = '<span class="error">❌ 连接错误: ' + err.message + '</span>';
-                console.error("MQTT错误:", err);
             });
 
-            // 连接关闭（会自动尝试重连）
+            // 连接关闭（会自动重连）
             client.on('close', function () {
                 statusEl.textContent = '🔌 连接已断开...';
             });
