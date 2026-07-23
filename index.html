@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-     <meta charset="UTF-8">
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>水质监测</title>
     <style>
@@ -26,17 +26,23 @@
         <div class="card"><div class="label">水质</div><div class="value" id="quality">--</div><div class="label">TDS</div></div>
     </div>
 
+    <!-- 引入 Paho MQTT JavaScript 库 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/paho-mqtt/1.0.1/mqttws31.js"></script>
+
     <script>
+        // ========== 请修改这里的配置 ==========
         const DEVICE_ID = "6a5cd5a47f2e6c302f86b74e_861037052742509";
         const DEVICE_SECRET = "87654321";
         const MQTT_HOST = "c0191bf1ec.st1.iotda-device.cn-north-4.myhuaweicloud.com";
-        const MQTT_PORT = 443;
-        const MQTT_PATH = "/mqtt";
+        const MQTT_PORT = 443;          // wss 端口
+        const MQTT_PATH = "/mqtt";      // WebSocket 路径
         const TOPIC_REPORT = "$oc/devices/" + DEVICE_ID + "/sys/properties/report";
+        // ====================================
 
+        // 创建 MQTT 客户端
         const client = new Paho.MQTT.Client(MQTT_HOST, MQTT_PORT, MQTT_PATH, DEVICE_ID);
 
+        // 设置连接参数
         const options = {
             useSSL: true,
             userName: DEVICE_ID,
@@ -46,29 +52,41 @@
             onFailure: onFail
         };
 
+        // 连接失败回调
         function onFail(err) {
             document.getElementById('status').textContent = '连接失败: ' + err.errorMessage;
+            console.error("MQTT connection failed:", err);
         }
 
+        // 连接成功回调
         function onConnect() {
             document.getElementById('status').textContent = '已连接，等待数据...';
+            // 订阅属性上报 topic
             client.subscribe(TOPIC_REPORT, { qos: 0 });
         }
 
+        // 收到消息回调
         client.onMessageArrived = function (message) {
             try {
                 const payload = JSON.parse(message.payloadString);
+                // 提取属性
                 let props = {};
                 if (payload.services && payload.services.length > 0) {
                     props = payload.services[0].properties || {};
                 } else {
+                    // 扁平格式
                     props = payload;
                 }
 
-                if (props.temperature !== undefined) document.getElementById('temp').textContent = props.temperature;
-                if (props.ph !== undefined) document.getElementById('ph').textContent = props.ph;
-                if (props.turbidity !== undefined) document.getElementById('turb').textContent = props.turbidity;
-                if (props.quality !== undefined) document.getElementById('quality').textContent = props.quality;
+                // 更新 UI
+                if (props.temperature !== undefined)
+                    document.getElementById('temp').textContent = props.temperature;
+                if (props.ph !== undefined)
+                    document.getElementById('ph').textContent = props.ph;
+                if (props.turbidity !== undefined)
+                    document.getElementById('turb').textContent = props.turbidity;
+                if (props.quality !== undefined)
+                    document.getElementById('quality').textContent = props.quality;
 
                 document.getElementById('status').textContent = '数据已更新 ' + new Date().toLocaleTimeString();
             } catch (e) {
@@ -76,11 +94,16 @@
             }
         };
 
+        // 连接断开回调
         client.onConnectionLost = function (responseObject) {
             document.getElementById('status').textContent = '连接断开，尝试重连...';
-            setTimeout(() => { client.connect(options); }, 5000);
+            // 5秒后重连
+            setTimeout(() => {
+                client.connect(options);
+            }, 5000);
         };
 
+        // 开始连接
         client.connect(options);
     </script>
 </body>
