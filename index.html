@@ -37,14 +37,14 @@
         const TOPIC_REPORT = "$oc/devices/" + DEVICE_ID + "/sys/properties/report";
 
         // 生成 access_token
-    function getAccessToken(secret) {
-        const now = new Date();
-        const timestamp = Math.floor(now.getTime() / 1000); // 秒级时间戳
-        const data = timestamp + "";
-        const wordArray = CryptoJS.HmacSHA256(data, secret);
-        const hashBase64 = CryptoJS.enc.Base64.stringify(wordArray);
-        return timestamp + "." + hashBase64;
-    }
+        function getAccessToken(secret) {
+            const now = new Date();
+            const timestamp = Math.floor(now.getTime() / 1000); // 秒级时间戳
+            const data = timestamp + "";
+            const wordArray = CryptoJS.HmacSHA256(data, secret);
+            const hashBase64 = CryptoJS.enc.Base64.stringify(wordArray);
+            return timestamp + "." + hashBase64;
+        }
 
         const client = new Paho.MQTT.Client(MQTT_HOST, MQTT_PORT, MQTT_PATH, DEVICE_ID);
         const options = {
